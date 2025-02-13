@@ -1,0 +1,2 @@
+You should now write a few sentences detailing the current state of the game, and your plans for your next order. Keep this brief, and do not include any orders in standard diplomacy notation.
+Reminder: You must end your response with 'END THOUGHTS', and only submit orders after you receive a SUBMIT ORDERS command.

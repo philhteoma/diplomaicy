@@ -7,7 +7,7 @@ class StateParser():
   UNITS_SECTION_TITLE = "CURRENT UNIT LOCATIONS:"
   SUPPLY_SECTION_TITLE = "CURRENT CONTROLLED SUPPLY CENTERS:"
 
-  SECTION_SEP = "\n\n"
+  SECTION_SEP = "\n"
   
   POWER_SUFFIX = ": "
 
@@ -51,12 +51,23 @@ class StateParser():
   def get_power_unit_locations(self, game:dict, power:str):
     units = game.get_state()["units"][power]
     return self.UNITS_SECTION_TITLE + self.POWER_SUFFIX + self.ITEM_SEP.join(units)
+  
+  def get_power_builds(self, game:str, power:str):
+    builds = game.get_state()["builds"][power]
+    build_count, build_locations = builds.values()
+    if build_count > 0:
+      return f"You have {build_count} builds available. You can build in the following locations: {', '.join(build_locations)}"
+    elif build_count < 0:
+      unit_locations = game.get_state()["units"][power]
+      return f"You have lost supply centers, and must destroy {abs(build_count)} units. You currently control the following units: {', '.join(unit_locations)}"
+    else:
+      return "Your supply center count has not changed, so you do not need to build or destroy units"
 
   def parse_state(self, game: Game):
     state = game.get_state()
 
     state_str =  self.HEADER
-    state_str += self._parse_orders(game.get_phase_history()[-1].orders, game.get_phase_history()[-1].results)
+    state_str += self._parse_orders(game)
     state_str += self.SECTION_SEP
     state_str += self._parse_unit_locations(state["units"])
     state_str += self.SECTION_SEP
@@ -84,7 +95,12 @@ class StateParser():
     return title
   
 
-  def _parse_orders(self, orders: dict, results: dict):
+  def _parse_orders(self, game: Game):
+    if game.get_current_phase() == "S1901M": return "" # No previous orders
+    
+    orders =  game.get_phase_history()[-1].orders 
+    results = game.get_phase_history()[-1].results
+
     for power, power_orders in orders.items():   # For each Power
       for i, power_order in enumerate(power_orders): # For each order that power made
         for r_order, result in results.items(): # For each result

@@ -42,8 +42,8 @@ class MoveChecker():
     else:
       r, e_string = False, ""
     
-    if footer.unit_reminder: e_string += "+\n" + self.parser.get_power_unit_locations(self.game, power) + "\n"
-    if footer.order_thought_reminder: e_string += "+\n" + "You may be submitting your thoughts as orders. Remember, after the command \"SUBMIT ORDERS\", you must *only* submit orders in standard diplomacy notation."
+    if footer.unit_reminder: e_string += "\n" + self.parser.get_power_unit_locations(self.game, power) + "\n"
+    if footer.order_thought_reminder: e_string += "\n" + "You may be submitting your thoughts as orders. Remember, after the command \"SUBMIT ORDERS\", you must *only* submit orders in standard diplomacy notation."
     
     e_string += "\n" + self.MISTAKE_REMINDER
     e_string += "\nBEGIN THOUGHTS\n"
@@ -67,10 +67,11 @@ class MoveChecker():
       footer.order_thought_reminder = True
 
     if self.game.current_short_phase[0] in ["S", "F"]:
+      footer.unit_reminder = True
       if self.order_count > self.total_units:
         return False, [("", f"You submitted {self.order_count} orders, but you only have {self.total_units} units")]
       if self.order_count < self.build_counts:
-        return False, [("", f"You submitted {self.order_count} orders, but you have {self.build_counts} units")]
+        return False, [("", f"You submitted {self.order_count} orders, but you have {self.total_units} units")]
     elif self.game.current_short_phase[0] == "W":
       if self.order_count > self.build_counts:
         return False, [("", f"You submitted {self.order_count} orders, but you only have {self.build_counts} builds")]
@@ -79,7 +80,7 @@ class MoveChecker():
 
 
     # If no orders, return True
-    if not orders: return True
+    if not orders: return True, []
 
     # Any character in order is not in A-Z/-
     if any([c.islower() for c in response_text]): return False, [("Uppercase: ", "All characters must be uppercase")]
@@ -91,7 +92,7 @@ class MoveChecker():
     # Sanity checks for entire order list
     for order in orders:
       # Any word in any order is longer than 3 characters
-      if any([len(x) > 3 for x in order.split(" ")]): return False, [("Words too long: ",self.MALFORMED_ORDER_ERROR)]
+      if any([len(x) > 3 for x in order.replace("/", " ").split(" ")]): return False, [("Words too long: ",self.MALFORMED_ORDER_ERROR)]
 
     
     # Generic checks
@@ -117,12 +118,12 @@ class MoveChecker():
 
     # Support checks
     for order in support_orders:
-      valid, msg = self._support_check(order, power, footer)
+      valid, msg = self._support_check(order, power, convoy_orders, invalid_orders, footer)
       if not valid: invalid_orders.append((order, "SUPPORT ERROR: " + msg))
 
     # Movement checks
     for order in move_orders:
-      valid, msg = self._move_check(order, power, convoy_orders, invalid_orders,footer)
+      valid, msg = self._move_check(order, power, convoy_orders, invalid_orders, footer)
       if not valid: invalid_orders.append((order, "MOVE ERROR: " + msg))
     
     # Hold checks
@@ -160,17 +161,18 @@ class MoveChecker():
     locs = [part for part in parts if len(part) ==  3]
     bad_locs = [loc for loc in locs if loc not in self.all_locs]
     if bad_locs:
-      return order, power + f"Location(s) {', '.join(bad_locs)} do not exist"
+      return False, power + f"Location(s) {', '.join(bad_locs)} do not exist"
 
-    # Check ordered unit actually exists
-    if order[:5] not in self.game.get_state()["units"][power]: 
-      footer.unit_reminder = True
-      if parts[0] == "A":
-        return order, f"{power} has no army in {parts[1]}"
-      elif parts[0] == "F":
-        return order, f"{power} has no fleet in {parts[1]}"
-      else:
-        return order, f"Unit \"{parts[0]}\" is not a valid unit type"
+    # Check ordered unit actually exists, if game is not in winter phase
+    if self.game.current_short_phase[0] != "W":
+      if parts[0] + " " + parts[1] not in self.game.get_state()["units"][power]: 
+        footer.unit_reminder = True
+        if parts[0] == "A":
+          return False, f"{power} has no army in {parts[1]}"
+        elif parts[0] == "F":
+          return False, f"{power} has no fleet in {parts[1]}"
+        else:
+          return False, f"Unit \"{parts[0]}\" is not a valid unit type"
     
     return True, ""
 
@@ -242,7 +244,7 @@ class MoveChecker():
       footer.unit_reminder = True
       return False, f"There is no army in \"{parts[5]}\""
   
-  def _support_check(self, order, power, footer):
+  def _support_check(self, order, power, convoy_orders, invalid_orders, footer):
     if self.game.current_short_phase[0] not in ["S", "F"]:
       return False, "Cannot support in winter"
     parts = order.split(" ")
@@ -271,6 +273,29 @@ class MoveChecker():
         return False, f"Location \"{parts[6]}\" does not exist"
       if parts[6] not in self.map.dest_with_coasts[parts[1]]:
         return False, f"Target location \"{parts[6]}\" is not adjacent to the supporting unit's location, which must be true for a support move"
+      
+      # Adjacency checks for supported unit
+      if parts[4] == "F":
+        if parts[7] not in self.map.dest_with_coasts[parts[5]]: # Fleets must always move to adjacent territories
+          return False, f"Fleets must move to adjacent territories"
+      if parts[4] == "A":
+        # Check if territories are adjacent
+        if parts[7] not in self.map.dest_with_coasts[parts[5]]:
+          matching_convoy_order = False
+          error = f"Cannot support army move to destination - {parts[5]} is not adjacent to {parts[7]}"
+          if self.check_convoy:
+            for order in convoy_orders:
+              # Keeping logic for convoying with just one fleet for now
+              if order not in [x[0] for x in invalid_orders]: # Convoy order must be valid
+                unit_type, fleet_loc, _c, _a, convoy_start, _, convoy_end = order.split(" ")
+                if (convoy_start == parts[5]) and (convoy_end == parts[7]):
+                  # Fleet must be adjacent to both territories
+                  if (parts[5] in self.map.dest_with_coasts[fleet_loc]) and (parts[7] in self.map.dest_with_coasts[fleet_loc]):
+                    matching_convoy_order = True
+                    break
+          if not matching_convoy_order:
+            return False, error
+
     
     return True, ""
 
@@ -307,11 +332,11 @@ class MoveChecker():
       if self.map_loc_type[parts[3]] == "WATER": # Armies cannot move to sea territories
         return False, f"Armies cannot move to sea territories"
       # If checking convoy path, check that the unit has a matching destination convoy order
-      if self.check_convoy:
         # Check if territories are adjacent
-        if parts[1] not in self.map.dest_with_coasts[parts[3]]:
-          matching_convoy_order = False
-          error = f"Army cannot move to destination - {parts[1]} is not adjacent to {parts[3]}"
+      if parts[1] not in self.map.dest_with_coasts[parts[3]]:
+        matching_convoy_order = False
+        error = f"Army cannot move to destination - {parts[1]} is not adjacent to {parts[3]}"
+        if self.check_convoy:
           for order in convoy_orders:
             # Keeping logic for convoying with just one fleet for now
             if order not in [x[0] for x in invalid_orders]: # Convoy order must be valid
@@ -321,8 +346,8 @@ class MoveChecker():
                 if (parts[1] in self.map.dest_with_coasts[fleet_loc]) and (parts[3] in self.map.dest_with_coasts[fleet_loc]):
                   matching_convoy_order = True
                   break
-          if not matching_convoy_order:
-            return False,  error
+        if not matching_convoy_order:
+          return False,  error
     
 
     return True, ""

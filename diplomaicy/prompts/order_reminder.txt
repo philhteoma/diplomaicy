@@ -1,0 +1,2 @@
+It is now time to submit your orders.
+Reminder: After SUBMIT ORDERS, you must only repond with your orders in standard diplomacy notation, seperated by newlines, then with phrase "END ORDERS".

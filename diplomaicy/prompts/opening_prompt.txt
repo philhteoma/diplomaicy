@@ -24,5 +24,3 @@ When specifying a build order, use "B" insetad of "bld"
 An example move order is "A VEN - APU"
 When you are issuing a support order, order location to support a second location to a third location. An example support order is "A LVP S A EDI - YOR"
 Remember to build in Winter phases. Example build order are "F TRI B" or "A BEL B"
-
-Please reply to this message with "ok"
